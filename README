@@ -1,0 +1,10 @@
+编译:
+    开发: mvn clean install -Dmaven.test.skip -Denv=dev
+    发布: mvn clean install -Dmaven.test.skip -Denv=release
+
+运行:
+    双击bin下的startup.bat
+
+配置(conf目录):
+    log4j.properties: 日志
+    conf.properties: 程序所需配置
