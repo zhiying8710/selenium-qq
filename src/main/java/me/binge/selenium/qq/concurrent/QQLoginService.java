@@ -373,7 +373,7 @@ public class QQLoginService extends AbstractExecutionThreadService {
         Set<String> cacheKeys = QQLoginService.listeners.keySet();
         for (String cacheKey : cacheKeys) {
             try {
-                QQLoginService.listeners.get(cacheKey).stopAsync();
+                QQLoginService.listeners.get(cacheKey).stopAsync().awaitTerminated(5, TimeUnit.SECONDS);
             } catch (Exception e) {
             }
         }
