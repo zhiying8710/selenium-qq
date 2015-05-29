@@ -4,10 +4,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -18,9 +18,13 @@ import me.binge.selenium.qq.cache.Cacher;
 import me.binge.selenium.qq.cache.impl.RedisCacher;
 import me.binge.selenium.qq.common.LoginResult;
 import me.binge.selenium.qq.login.QQLogin;
+import me.binge.selenium.qq.utils.ThrealLocalUtils;
 
 import org.apache.log4j.Logger;
 import org.openqa.selenium.NoSuchWindowException;
+import org.openqa.selenium.chrome.ChromeDriver;
+import org.openqa.selenium.chrome.ChromeOptions;
+import org.openqa.selenium.remote.DesiredCapabilities;
 import org.openqa.selenium.remote.SessionNotFoundException;
 import org.openqa.selenium.remote.UnreachableBrowserException;
 
@@ -29,9 +33,23 @@ import com.google.common.util.concurrent.AbstractScheduledService;
 
 public class QQLoginService extends AbstractExecutionThreadService {
 
+    private static DesiredCapabilities caps = null;
+
+    static {
+
+        ChromeOptions options = new ChromeOptions();
+        Map<String, Object> prefs = new HashMap<String, Object>();
+        prefs.put("profile.default_content_settings.images", 2); // 隐藏图片
+        prefs.put("profile.default_content_setting_values.images", 2); // 隐藏图片
+        options.setExperimentalOption("prefs", prefs);
+        caps = DesiredCapabilities.chrome();
+        caps.setCapability(ChromeOptions.CAPABILITY, options);
+
+    }
+
     private static final Logger logger = Logger.getLogger(QQLoginService.class);
 
-    private static final Map<Callable<Void>, AbstractScheduledService> callbacks = new ConcurrentHashMap<Callable<Void>, AbstractScheduledService>();
+    private static final Map<String, AbstractScheduledService> listeners = new ConcurrentHashMap<String, AbstractScheduledService>();
 
     private static final Map<String, Boolean> runningCacheKeys = new ConcurrentHashMap<String, Boolean>();
 
@@ -75,8 +93,8 @@ public class QQLoginService extends AbstractExecutionThreadService {
     private Map<String, String> loginInfo;
     private String cacheKey;
     private long start;
-    private QQLoginCallback callback;
     private long enqueueTime;
+    private ChromeDriver webDriver;
 
     public QQLoginService(CacheKeyInfo cacheKeyInfo) {
         this.cacheKey = cacheKeyInfo.getCacheKey();
@@ -216,12 +234,15 @@ public class QQLoginService extends AbstractExecutionThreadService {
             return;
         }
 
-        this.callback = new QQLoginCallback();
+        this.webDriver = new ChromeDriver(caps);
+        ThrealLocalUtils.WEBDRIVER_LOCAL.set(this.webDriver);
+        ThrealLocalUtils.CAHCEKKEY_LOCAL.set(this.cacheKey);
+
         this.start = System.currentTimeMillis();
-        logger.info("login for " + email + " start, regist a callback for it.");
+        logger.info("login for " + email + " start, regist a listener for it.");
         this.addListener();
         try {
-            LoginResult loginResult = qqLogin.login(loginInfo, cacheKey, callback);
+            LoginResult loginResult = qqLogin.login(loginInfo, cacheKey);
             logger.info("[ Z ] login for [" + email + "] complete, result: " + loginResult + ".");
             qqLogin.cacheLoginResult(cacheKey, loginResult);
         } catch (Exception e) {
@@ -235,17 +256,33 @@ public class QQLoginService extends AbstractExecutionThreadService {
             qqLogin.cacheFailedLoginResult(cacheKey);
         }
         try {
-            callback.call();
-            AbstractScheduledService listener = callbacks.remove(callback);
+            quitWebDriver();
+
+            AbstractScheduledService listener = listeners.remove(cacheKey);
             if (listener != null) {
                 listener.stopAsync();
             }
-            qqLogin.release();
             release();
         } catch (Exception e) {
             logger.error("release cacheKey " + cacheKey + " error.", e);
         }
         CURR_CONCURRENT.addAndGet(-1);
+    }
+
+    /**
+     * 不用 {@link ChromeDriver#quit()} 是因为quit会去关闭所有window(虽然这里只会有一个window), 并且去clean和close一些残留的东西, 花的时间更长并且会发生警告:</br>
+     * Command failed to close cleanly. Destroying forcefully (v2). org.openqa.selenium.os.UnixProcess$SeleniumWatchDog@fff2a2
+     */
+    public void quitWebDriver() {
+        if (this.webDriver != null) {
+            try {
+//                this.webDriver.quit();
+                this.webDriver.close();
+            } catch (Exception e) {
+                logger.error("quit chrome web driver for [" + email + "] error.", e);
+            }
+            this.webDriver = null;
+        }
     }
 
     private boolean addRunningCacheKey(String cacheKey) {
@@ -257,6 +294,8 @@ public class QQLoginService extends AbstractExecutionThreadService {
     }
 
     private void release() {
+        ThrealLocalUtils.CAHCEKKEY_LOCAL.remove();
+        ThrealLocalUtils.WEBDRIVER_LOCAL.remove();
         release(cacheKey, new CountDownLatch(1));
     }
 
@@ -294,9 +333,10 @@ public class QQLoginService extends AbstractExecutionThreadService {
                 boolean timeout = System.currentTimeMillis() - getStart() >= loginTimeOutMills;
                 if (!running || QQLoginService.this.state() == State.TERMINATED || QQLoginService.this.state() == State.FAILED || timeout) { //超时或线程出现异常
                     logger.warn("for [" + email + "] login thread state :" + QQLoginService.this.state() + ", running : " + running + ", timeout: " + timeout + ", callback call.");
-                    callback.call();
+
+                    quitWebDriver();
                     release();
-                    AbstractScheduledService listener = callbacks.remove(callback);
+                    AbstractScheduledService listener = listeners.remove(cacheKey);
                     if (listener != null) {
                         listener.stopAsync();
                     }
@@ -304,7 +344,7 @@ public class QQLoginService extends AbstractExecutionThreadService {
             }
 
             protected void startUp() throws Exception {
-                callbacks.put(callback, this);
+                listeners.put(cacheKey, this);
             }
 
         }.startAsync();
@@ -330,11 +370,10 @@ public class QQLoginService extends AbstractExecutionThreadService {
             logger.error("all running cacheKeys in " + queueKey + " did not be released.");
         }
 
-        Set<Callable<Void>> callbacks = QQLoginService.callbacks.keySet();
-        for (Callable<Void> callback : callbacks) {
+        Set<String> cacheKeys = QQLoginService.listeners.keySet();
+        for (String cacheKey : cacheKeys) {
             try {
-                callback.call();
-                QQLoginService.callbacks.get(callback).stopAsync();
+                QQLoginService.listeners.get(cacheKey).stopAsync();
             } catch (Exception e) {
             }
         }

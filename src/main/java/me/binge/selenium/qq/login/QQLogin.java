@@ -15,8 +15,8 @@ import java.util.concurrent.TimeUnit;
 import me.binge.selenium.qq.cache.Cacher;
 import me.binge.selenium.qq.common.LoginResult;
 import me.binge.selenium.qq.common.VerifyCode;
-import me.binge.selenium.qq.concurrent.QQLoginCallback;
 import me.binge.selenium.qq.utils.HttpUtils;
+import me.binge.selenium.qq.utils.ThrealLocalUtils;
 
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.io.IOUtils;
@@ -28,9 +28,7 @@ import org.openqa.selenium.OutputType;
 import org.openqa.selenium.WebDriverException;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.chrome.ChromeDriver;
-import org.openqa.selenium.chrome.ChromeOptions;
 import org.openqa.selenium.internal.Base64Encoder;
-import org.openqa.selenium.remote.DesiredCapabilities;
 
 import com.alibaba.fastjson.JSONArray;
 
@@ -38,16 +36,11 @@ public class QQLogin {
 
     private static final Logger logger = Logger.getLogger(QQLogin.class);
 
-    private static DesiredCapabilities caps = null;
-
     private static final String R_NAME = "r=";
     private static final String SID_NAME = "sid=";
     private static final String VERIFY_CODE_FILE_PREFIX = "";
     private static final int DAMA_RETRY_MAX_TIMES = 3;
     private static final int VERIFY_CODE_RETRY_MAX_TIMES = 3;
-
-    private static ThreadLocal<ChromeDriver> webDriverLocal = new ThreadLocal<ChromeDriver>();
-    private static ThreadLocal<String> cacheKeyLocal = new ThreadLocal<String>();
 
     private Cacher cacher;
     private long timeout; // 从缓存获取数据的超时时间
@@ -67,23 +60,11 @@ public class QQLogin {
         this.verifyCodeRetryMaxTimes = Integer.valueOf(props.getProperty("verify.code.retry.max.times", VERIFY_CODE_RETRY_MAX_TIMES + ""));
     }
 
-    static {
-
-        ChromeOptions options = new ChromeOptions();
-        Map<String, Object> prefs = new HashMap<String, Object>();
-        prefs.put("profile.default_content_settings.images", 2); // 隐藏图片
-        prefs.put("profile.default_content_setting_values.images", 2); // 隐藏图片
-        options.setExperimentalOption("prefs", prefs);
-        caps = DesiredCapabilities.chrome();
-        caps.setCapability(ChromeOptions.CAPABILITY, options);
-
-    }
-
     /**
      * 禁止错误信息自动消失
      */
     private void disableShowErr() {
-        webDriverLocal.get()
+        ThrealLocalUtils.WEBDRIVER_LOCAL.get()
                 .executeScript("pt.plogin.show_err = function(b, a){pt.plogin.hideLoading();"
                         + "$.css.show($('error_tips'));"
                         + "pt.plogin.err_m.innerHTML = b;"
@@ -94,20 +75,14 @@ public class QQLogin {
      * 隐藏错误消息
      */
     private void hideErr() {
-        webDriverLocal.get().executeScript("pt.plogin.hide_err();");
+        ThrealLocalUtils.WEBDRIVER_LOCAL.get().executeScript("pt.plogin.hide_err();");
     }
 
-    public LoginResult login(Map<String, String> loginInfo, String cacheKey, QQLoginCallback callback) {
+    public LoginResult login(Map<String, String> loginInfo, String cacheKey) {
 
         String email = loginInfo.get(Cacher.EMAIL_KEY);
         String password = loginInfo.get(Cacher.PWD_KEY);
         String indepentPassword = loginInfo.get(Cacher.INDEPENT_PWD_KEY);
-
-        ChromeDriver webDriver = new ChromeDriver(caps);
-        callback.setWebDriver(webDriver);
-
-        cacheKeyLocal.set(cacheKey);
-        webDriverLocal.set(webDriver);
 
         return login(email, password, indepentPassword, cacheKey, false);
     }
@@ -130,7 +105,7 @@ public class QQLogin {
             }
         }
 
-        ChromeDriver webDriver = webDriverLocal.get();
+        ChromeDriver webDriver = ThrealLocalUtils.WEBDRIVER_LOCAL.get();
         String succUrl = webDriver.getCurrentUrl();
         int idx = succUrl.indexOf(SID_NAME);
         String sid = null;
@@ -172,7 +147,7 @@ public class QQLogin {
     }
 
     private LoginResult doLogin(String email, String password) {
-        ChromeDriver webDriver = webDriverLocal.get();
+        ChromeDriver webDriver = ThrealLocalUtils.WEBDRIVER_LOCAL.get();
         webDriver.get("https://mail.qq.com/");
 
         String frame = webDriver.findElement(By.cssSelector("#login_frame"))
@@ -307,7 +282,7 @@ public class QQLogin {
     public void click(By by) {
         while (true) {
             try {
-                webDriverLocal.get().findElement(by).click();
+                ThrealLocalUtils.WEBDRIVER_LOCAL.get().findElement(by).click();
                 break;
             } catch (WebDriverException e) {
                 if (e.getMessage().contains("Element is not clickable")) {
@@ -322,7 +297,7 @@ public class QQLogin {
      * 对错误页面进行截图
      */
     public String screenshotErr() {
-        ChromeDriver webDriver = webDriverLocal.get();
+        ChromeDriver webDriver = ThrealLocalUtils.WEBDRIVER_LOCAL.get();
         if (webDriver == null) {
             return null;
         }
@@ -339,7 +314,7 @@ public class QQLogin {
                 OutputStream stream = null;
 
                 try {
-                    String pathname = errScreenshotDir + File.separator + cacheKeyLocal.get() + ".png";
+                    String pathname = errScreenshotDir + File.separator + ThrealLocalUtils.CAHCEKKEY_LOCAL.get() + ".png";
                     logger.warn("take a screeshoterr file : " + pathname);
                     File screenshot = new File(pathname);
                     if (!screenshot.getParentFile().exists()) {
@@ -370,9 +345,9 @@ public class QQLogin {
 
     private LoginResult doAfterLogin(String email, String indepentPassword) {
 
-        ChromeDriver webDriver = webDriverLocal.get();
+        ChromeDriver webDriver = ThrealLocalUtils.WEBDRIVER_LOCAL.get();
         if (webDriver.getPageSource().contains("验证独立密码")) {
-            String cacheKey = cacheKeyLocal.get();
+            String cacheKey = ThrealLocalUtils.CAHCEKKEY_LOCAL.get();
             if (StringUtils.isNotBlank(indepentPassword)) {
                 WebElement ppEl = webDriver.findElement(By.cssSelector("#pp")); // 独立密码的input
                 click(By.cssSelector("#pp"));
@@ -500,7 +475,7 @@ public class QQLogin {
     }
 
     private void sendKeys(By by, String value) {
-        sendKeys(webDriverLocal.get().findElement(by), value);
+        sendKeys(ThrealLocalUtils.WEBDRIVER_LOCAL.get().findElement(by), value);
     }
 
     private void sendKeys(WebElement el, String value) {
@@ -515,7 +490,7 @@ public class QQLogin {
 
     private String getSuccCookies() {
 
-        ChromeDriver webDriver = webDriverLocal.get();
+        ChromeDriver webDriver = ThrealLocalUtils.WEBDRIVER_LOCAL.get();
         Set<Cookie> cookies = webDriver.manage().getCookies();
         List<Map<String, String>> succCookies = new ArrayList<Map<String,String>>();
         Map<String, List<String>> cookiesPerDomain = new HashMap<String, List<String>>();
@@ -549,7 +524,7 @@ public class QQLogin {
             return null;
         } else { // 云打码失败
             if (verifyCode != null) {
-                String cacheKey = cacheKeyLocal.get();
+                String cacheKey = ThrealLocalUtils.CAHCEKKEY_LOCAL.get();
 
                 loginResult.setResCode(LoginResult.RES_NEED_VERIFY_CODE);
                 loginResult.add(LoginResult.DATA_VERIFY_CODE, new Base64Encoder().encode(verifyCode.getBytes()));
@@ -604,7 +579,7 @@ public class QQLogin {
 //        headers.put("Connection", "keep-alive");
 //        headers.put("DNT", "1");
 //        headers.put("Host", "ssl.captcha.qq.com");
-        headers.put("Referer", webDriverLocal.get().getCurrentUrl());
+        headers.put("Referer", ThrealLocalUtils.WEBDRIVER_LOCAL.get().getCurrentUrl());
         return headers;
     }
 
@@ -637,7 +612,7 @@ public class QQLogin {
     }
 
     private VerifyCode getNewIndepentVerifyCode() {
-        ChromeDriver webDriver = webDriverLocal.get();
+        ChromeDriver webDriver = ThrealLocalUtils.WEBDRIVER_LOCAL.get();
         click(By.cssSelector("#vfcode"));
         WebElement vfcode = webDriver.findElement(By.cssSelector("#vfcode"));
         String vfcodeUrl = vfcode.getAttribute("src");
@@ -676,7 +651,7 @@ public class QQLogin {
     }
 
     private VerifyCode getNewVerifyCode() {
-        ChromeDriver webDriver = webDriverLocal.get();
+        ChromeDriver webDriver = ThrealLocalUtils.WEBDRIVER_LOCAL.get();
         WebElement verifyimgElement = webDriver.findElement(By
                 .cssSelector("#verifyimg"));
         String verifyimgUrl = verifyimgElement.getAttribute("src");
@@ -710,11 +685,6 @@ public class QQLogin {
         }
 
         return verifyCode;
-    }
-
-    public void release() {
-        cacheKeyLocal.remove();
-        webDriverLocal.remove();
     }
 
     public void cacheFailedLoginResult(String cacheKey) {
