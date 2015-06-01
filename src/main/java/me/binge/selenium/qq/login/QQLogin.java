@@ -187,7 +187,7 @@ public class QQLogin {
         }
 
         disableShowErr();
-
+        hideErr(); // 重试前隐藏错误信息
         click(By.cssSelector("#login_button"));
 
         sleep(500);
@@ -196,6 +196,15 @@ public class QQLogin {
         while (!webDriver.getCurrentUrl().startsWith("https://mail.qq.com") && !webDriver.getCurrentUrl().startsWith("http://mail.qq.com")) { // 说明未到登录成功页面,可能发生了错误
             LoginResult loginResult = new LoginResult();
             try {
+
+                if (webDriver.getCurrentUrl().contains("/cgi-bin/mibao_vry?")) {
+                    logger.warn("login for [" + email + "], need sweep safe qrcode.");
+                    loginResult.setResCode(LoginResult.RES_SWEEP_IMG);
+                    loginResult.add(LoginResult.DATA_ERR_MSG,
+                            "需要安全扫一扫,您已开启了网页登录保护，请验证密保.");
+                    return loginResult;
+                }
+
                 WebElement errTips = webDriver.findElement(By.cssSelector("#error_tips"));
                 if (errTips != null && errTips.isDisplayed()) {
                     String err = webDriver.findElement(By.cssSelector("#err_m")).getText();
@@ -217,7 +226,7 @@ public class QQLogin {
                         hideErr(); // 重试前隐藏错误信息
                         click(By.cssSelector("#login_button"));
                         continue;
-                    } else if (err.contains("验证码不正确")) {
+                    } else if (err.contains("验证码不正确") || err.contains("请输入完整的验证码")) {
                         logger.warn("login for [" + email + "], verify code is err.");
                         if (verifyRetryCnt <= this.verifyRetryTimes) { // 如果小于重试次数
                             verifyRetryCnt += 1;
@@ -251,6 +260,9 @@ public class QQLogin {
                     } else if (err.contains("提交参数错误") || err.contains("输入正确的QQ帐号")) { // 账号不正确
                         logger.warn("login for [" + email + "], account is error.");
                         loginResult.setResCode(LoginResult.RES_ACCOUNT_ERR);
+                    } else if (err.contains("账号长期未登录已经冻结")) {
+                        logger.warn("login for [" + email + "], account is too long unlogin.");
+                        loginResult.setResCode(LoginResult.RES_FAILED);
                     } else {
                         logger.warn("login for [" + email + "], failed unknown reason.");
                         loginResult.setResCode(LoginResult.RES_FAILED_UNKNOWN);
@@ -258,12 +270,6 @@ public class QQLogin {
                     }
                     logger.warn("login for [" + email + "], failed message: " + err + ".");
                     loginResult.add(LoginResult.DATA_ERR_MSG, err);
-                    return loginResult;
-                } else if (webDriver.getCurrentUrl().contains("/cgi-bin/mibao_vry?")) {
-                    logger.warn("login for [" + email + "], need sweep safe qrcode.");
-                    loginResult.setResCode(LoginResult.RES_SWEEP_IMG);
-                    loginResult.add(LoginResult.DATA_ERR_MSG,
-                            "需要安全扫一扫,您已开启了网页登录保护，请验证密保.");
                     return loginResult;
                 }
             } catch (Exception e) { // 如果发生异常, 说明在取页面元素时页面已经跳转了.

@@ -8,6 +8,6 @@ public class ThrealLocalUtils {
 
     public static final ThreadLocal<String> CAHCEKKEY_LOCAL = new ThreadLocal<String>();
 
-
+    public static final ThreadLocal<String> PROXY_LOCAL = new ThreadLocal<String>();
 
 }

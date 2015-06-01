@@ -145,6 +145,10 @@ public class RedisCacher implements Cacher {
         return isClosed;
     }
 
+    public RedisExecutor<?> getExecutor() {
+        return executor;
+    }
+
 //    @Override
 //    public void delRunningCacheKey(String queueKey, String cacheKey) {
 //        this.executor.srem(Cacher.RUNNING_CACHE_KEYS_PREFIX + queueKey, new String[]{cacheKey});

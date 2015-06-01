@@ -33,20 +33,6 @@ import com.google.common.util.concurrent.AbstractScheduledService;
 
 public class QQLoginService extends AbstractExecutionThreadService {
 
-    private static DesiredCapabilities caps = null;
-
-    static {
-
-        ChromeOptions options = new ChromeOptions();
-        Map<String, Object> prefs = new HashMap<String, Object>();
-        prefs.put("profile.default_content_settings.images", 2); // 隐藏图片
-        prefs.put("profile.default_content_setting_values.images", 2); // 隐藏图片
-        options.setExperimentalOption("prefs", prefs);
-        caps = DesiredCapabilities.chrome();
-        caps.setCapability(ChromeOptions.CAPABILITY, options);
-
-    }
-
     private static final Logger logger = Logger.getLogger(QQLoginService.class);
 
     private static final Map<String, AbstractScheduledService> listeners = new ConcurrentHashMap<String, AbstractScheduledService>();
@@ -54,6 +40,8 @@ public class QQLoginService extends AbstractExecutionThreadService {
     private static final Map<String, Boolean> runningCacheKeys = new ConcurrentHashMap<String, Boolean>();
 
     private static final AtomicInteger CURR_CONCURRENT = new AtomicInteger(0);
+
+//    private static final String[] PROXIES = {"121.201.14.73:3128", "121.201.13.199:3128", "119.254.100.92:3128", "119.254.101.165:3128"};
 
     static class CacheKeyInfo {
         private String cacheKey;
@@ -234,13 +222,8 @@ public class QQLoginService extends AbstractExecutionThreadService {
             return;
         }
 
-        this.webDriver = new ChromeDriver(caps);
-        ThrealLocalUtils.WEBDRIVER_LOCAL.set(this.webDriver);
-        ThrealLocalUtils.CAHCEKKEY_LOCAL.set(this.cacheKey);
+        initLogin();
 
-        this.start = System.currentTimeMillis();
-        logger.info("login for " + email + " start, regist a listener for it.");
-        this.addListener();
         try {
             LoginResult loginResult = qqLogin.login(loginInfo, cacheKey);
             logger.info("[ Z ] login for [" + email + "] complete, result: " + loginResult + ".");
@@ -269,15 +252,37 @@ public class QQLoginService extends AbstractExecutionThreadService {
         CURR_CONCURRENT.addAndGet(-1);
     }
 
-    /**
-     * 不用 {@link ChromeDriver#quit()} 是因为quit会去关闭所有window(虽然这里只会有一个window), 并且去clean和close一些残留的东西, 花的时间更长并且会发生警告:</br>
-     * Command failed to close cleanly. Destroying forcefully (v2). org.openqa.selenium.os.UnixProcess$SeleniumWatchDog@fff2a2
-     */
+    public void initLogin() {
+        ChromeOptions options = new ChromeOptions();
+        Map<String, Object> prefs = new HashMap<String, Object>();
+        prefs.put("profile.default_content_settings.images", 2); // 隐藏图片
+        prefs.put("profile.default_content_setting_values.images", 2); // 隐藏图片
+        options.setExperimentalOption("prefs", prefs);
+        DesiredCapabilities caps = DesiredCapabilities.chrome();
+        caps.setCapability(ChromeOptions.CAPABILITY, options);
+
+//        if (PROXIES.length > 0) {
+//            Proxy proxy = new Proxy();
+//            String ip = PROXIES[RandomUtils.nextInt(0, PROXIES.length)];
+//            proxy.setHttpProxy(ip);
+//            caps.setCapability("proxy", proxy);
+//            ThrealLocalUtils.PROXY_LOCAL.set(ip);
+//            logger.info("set proxy [" + ip + "] for " + email);
+//        }
+
+        this.webDriver = new ChromeDriver(caps);
+        ThrealLocalUtils.WEBDRIVER_LOCAL.set(this.webDriver);
+        ThrealLocalUtils.CAHCEKKEY_LOCAL.set(this.cacheKey);
+
+        this.start = System.currentTimeMillis();
+        logger.info("login for " + email + " start, regist a listener for it.");
+        this.addListener();
+    }
+
     public void quitWebDriver() {
         if (this.webDriver != null) {
             try {
-//                this.webDriver.quit();
-                this.webDriver.close();
+                this.webDriver.quit();
             } catch (Exception e) {
                 logger.error("quit chrome web driver for [" + email + "] error.", e);
             }
@@ -296,6 +301,7 @@ public class QQLoginService extends AbstractExecutionThreadService {
     private void release() {
         ThrealLocalUtils.CAHCEKKEY_LOCAL.remove();
         ThrealLocalUtils.WEBDRIVER_LOCAL.remove();
+        ThrealLocalUtils.PROXY_LOCAL.remove();
         release(cacheKey, new CountDownLatch(1));
     }
 

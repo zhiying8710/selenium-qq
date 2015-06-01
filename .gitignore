@@ -4,3 +4,5 @@
 bin
 target
 *.log
+err_screenshot
+*.json
